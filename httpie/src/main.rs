@@ -8,6 +8,7 @@ use clap::{AppSettings, Clap};
 /// A naive httpie implementation with Rust, can you imagine how easy it is?
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "xhl <xhl@rust.com>")]
+#[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
     #[clap(subcommand)]
     subcmd: SubCommand,
