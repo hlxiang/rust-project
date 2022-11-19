@@ -1,0 +1,10 @@
+{
+    "address":"localhost",
+    "port": "8000",
+    "workers": 4,
+    "database": {
+        "adapter": "postgresql",
+        "db_name": "blog_development",
+        "pool": 5
+    }
+}
