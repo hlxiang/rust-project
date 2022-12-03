@@ -1,7 +1,15 @@
 use clap::Parser;
-use std::str::FromStr;
 use anyhow::{anyhow, Result};
-use reqwest::Url;
+use reqwest::{header, Client, Response, Url};
+use std::{collections::HashMap, str::FromStr};
+use mime::Mime;
+use colored::Colorize;
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{Style, ThemeSet},
+    parsing::SyntaxSet,
+    util::{as_24_bit_terminal_escaped, LinesWithEndings},
+};
 
 // 以下部分用于处理 CLI
 
@@ -29,7 +37,7 @@ enum SubCommand {
 #[derive(Parser, Debug)]
 struct Get {
     /// HTTP 请求的 URL
-    // #[clap(parse(try_from_str = parse_url))]
+    #[clap(parse(try_from_str = parse_url))]
     url: String,
 }
 
@@ -40,15 +48,15 @@ struct Get {
 #[derive(Parser, Debug)]
 struct Post {
     /// HTTP 请求的 URL
-    // #[clap(parse(try_from_str = parse_url))]
+    #[clap(parse(try_from_str = parse_url))]
     url: String,
     /// HTTP 请求的 body
-    // #[clap(parse(try_from_str=parse_kv_pair))]
-    body: Vec<String>,
+    #[clap(parse(try_from_str = parse_kv_pair))]
+    body: Vec<KvPair>,
 }
 
 /// 命令行中k=v, 可以通过parse_kv_pair 解析成KvPair结构
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct KvPair {
     k: String,
     v: String,
@@ -79,7 +87,75 @@ fn parse_url(s: &str) -> Result<String> {
     Ok(s.into())
 }
 
-fn main() {
+async fn get(client: Client, args: &Get) -> Result<()> {
+    let resp = client.get(&args.url).send().await?;
+    Ok(print_resp(resp).await?)
+}
+
+async fn post(client: Client, args: &Post) -> Result<()> {
+    let mut body = HashMap::new();
+    for pair in args.body.iter() {
+        body.insert(&pair.k, &pair.v);
+    }
+    let resp = client.post(&args.url).json(&body).send().await?;
+    Ok(print_resp(resp).await?)
+}
+
+// 打印服务器版本号 + 状态码
+fn print_status(resp: &Response) {
+    let status = format!("{:?} {}", resp.version(), resp.status()).blue();
+    println!("{}\n", status);
+}
+
+// 打印服务器返回的 HTTP header
+fn print_headers(resp: &Response) {
+    for (name, value) in resp.headers() {
+        println!("{}: {:?}", name.to_string().green(), value);
+    }
+
+    println!();
+}
+
+/// 打印服务器返回的 HTTP body
+fn print_body(m: Option<Mime>, body: &str) {
+    match m {
+        // 对于 "application/json" 我们 pretty print
+        Some(v) if v == mime::APPLICATION_JSON => print_syntect(body, "json"),
+        Some(v) if v == mime::TEXT_HTML => print_syntect(body, "html"),
+
+        // 其它 mime type，我们就直接输出
+        _ => println!("{}", body),
+    }
+}
+
+/// 打印整个响应
+async fn print_resp(resp: Response) -> Result<()> {
+    print_status(&resp);
+    print_headers(&resp);
+    let mime = get_content_type(&resp);
+    let body = resp.text().await?;
+    print_body(mime, &body);
+    Ok(())
+}
+
+/// 将服务器返回的 content-type 解析成 Mime 类型
+fn get_content_type(resp: &Response) -> Option<Mime> {
+    resp.headers()
+        .get(header::CONTENT_TYPE)
+        .map(|v| v.to_str().unwrap().parse().unwrap())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
     println!("{:?}", opts);
+    // 生成一个HTTP客户端
+    let client = Client::new();
+    let result = match opts.subcmd {
+        SubCommand::Get(ref args) => get(client, args).await?,
+        SubCommand::Post(ref args) => post(client, args).await?,
+    };
+
+    Ok(result)
 }
+
