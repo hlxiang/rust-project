@@ -37,7 +37,7 @@ enum SubCommand {
 #[derive(Parser, Debug)]
 struct Get {
     /// HTTP 请求的 URL
-    #[clap(parse(try_from_str = parse_url))]
+    // #[clap(parse(try_from_str = parse_url))]
     url: String,
 }
 
@@ -48,15 +48,15 @@ struct Get {
 #[derive(Parser, Debug)]
 struct Post {
     /// HTTP 请求的 URL
-    #[clap(parse(try_from_str = parse_url))]
+    // #[clap(parse(try_from_str = parse_url))]
     url: String,
     /// HTTP 请求的 body
-    #[clap(parse(try_from_str = parse_kv_pair))]
+    // #[clap(parse(try_from_str = parse_kv_pair))]
     body: Vec<KvPair>,
 }
 
 /// 命令行中k=v, 可以通过parse_kv_pair 解析成KvPair结构
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct KvPair {
     k: String,
     v: String,
@@ -145,6 +145,19 @@ fn get_content_type(resp: &Response) -> Option<Mime> {
         .map(|v| v.to_str().unwrap().parse().unwrap())
 }
 
+fn print_syntect(s: &str, ext: &str) {
+    // Load these once at the start of your program
+    let ps = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+    let syntax = ps.find_syntax_by_extension(ext).unwrap();
+    let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
+    for line in LinesWithEndings::from(s) {
+        let ranges: Vec<(Style, &str)> = h.highlight(line, &ps);
+        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+        print!("{}", escaped);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
@@ -159,3 +172,33 @@ async fn main() -> Result<()> {
     Ok(result)
 }
 
+// 仅在cargo test时才编译
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parse_url_works() {
+        assert!(parse_url("abc").is_err());
+        assert!(parse_url("http://abc.xyz").is_ok());
+        assert!(parse_url("https://httpbin.org/post").is_ok());
+    }
+
+    #[test]
+    fn parse_kv_pair_works() {
+        assert!(parse_kv_pair("a").is_err());
+        assert_eq!(
+            parse_kv_pair("a=1").unwrap(),
+            KvPair {
+                k: "a".into(),
+                v: "1".into()
+            }
+        );
+        assert_eq!(
+            parse_kv_pair("b=").unwrap(),
+            KvPair {
+                k: "b".into(),
+                v: "".into()
+            }
+        );
+    }
+}
